@@ -152,35 +152,94 @@ function createMessageHandler(deps) {
   };
 }
 
+/**
+ * Serialize message_create processing against in-flight sends.
+ *
+ * In the self-chat, whatsapp-web.js can emit `message_create` for a message
+ * the bot just sent BEFORE the sendMessage promise settles — so id recording
+ * would lag the event and the bot could parse its own text ("ya bebiste
+ * agua?" would self-confirm, help text would self-add tasks, etc).
+ * The queue defers every event while any send is still settling, guaranteeing
+ * ids are recorded before handling.
+ *
+ * @param {(msg: object) => Promise<void>} onMessage
+ * @param {Set<Promise<any>>} inFlight send promises currently pending
+ * @param {object} [log] logger for the safety net
+ * @returns {{enqueue: (msg: object) => Promise<void>, size: () => number}}
+ */
+function createSerialMessageQueue(onMessage, inFlight, log) {
+  const queue = [];
+  let draining = false;
+
+  async function drain() {
+    if (draining) return;
+    draining = true;
+    try {
+      while (queue.length > 0) {
+        if (inFlight.size > 0) {
+          // Wait for pending sends to record their ids, then re-check: a new
+          // send may have started during the await (loop condition refreshes).
+          await Promise.allSettled([...inFlight]);
+          continue;
+        }
+        const msg = queue.shift();
+        try {
+          await onMessage(msg);
+        } catch (err) {
+          // onMessage catches internally; safety net so one bad event
+          // never stalls the queue.
+          if (log) log.error('queued message handling failed', err);
+        }
+      }
+    } finally {
+      draining = false;
+    }
+  }
+
+  return {
+    enqueue(msg) {
+      queue.push(msg);
+      return drain();
+    },
+    size: () => queue.length,
+  };
+}
+
 async function main() {
   storage.init(process.env.DATA_DIR);
 
   const client = new Client({ authStrategy: new LocalAuth() });
   let targetChatId = null;
   const botMessageIds = new Set();
+  const inFlightSends = new Set();
 
   // Modules share this send function; recorded ids keep the bot from
   // reacting to its own messages in the self-chat. Failures are logged and
   // swallowed so a transient sendMessage rejection never crashes timers (RNF1).
-  const send = async (text) => {
+  const send = (text) => {
     if (!targetChatId) {
       logger.warn('send skipped: target chat not resolved yet');
-      return null;
+      return Promise.resolve(null);
     }
-    try {
-      const sent = await client.sendMessage(targetChatId, text);
-      const id = sent && sent.id && sent.id._serialized;
-      if (id) {
-        botMessageIds.add(id);
-        if (botMessageIds.size > 500) {
-          botMessageIds.delete(botMessageIds.values().next().value);
+    const pending = (async () => {
+      try {
+        const sent = await client.sendMessage(targetChatId, text);
+        const id = sent && sent.id && sent.id._serialized;
+        if (id) {
+          botMessageIds.add(id);
+          if (botMessageIds.size > 500) {
+            botMessageIds.delete(botMessageIds.values().next().value);
+          }
         }
+        return sent;
+      } catch (err) {
+        logger.error(`sendMessage failed: ${err.message}`);
+        return null;
       }
-      return sent;
-    } catch (err) {
-      logger.error(`sendMessage failed: ${err.message}`);
-      return null;
-    }
+    })();
+    inFlightSends.add(pending);
+    pending.finally(() => inFlightSends.delete(pending));
+    return pending;
   };
 
   client.on('qr', (qr) => {
@@ -223,8 +282,9 @@ async function main() {
     parseMessage,
     logger,
   });
+  const messageQueue = createSerialMessageQueue(onMessage, inFlightSends, logger);
   client.on('message_create', (msg) => {
-    onMessage(msg);
+    messageQueue.enqueue(msg);
   });
 
   client.on('disconnected', (reason) => {
@@ -257,4 +317,11 @@ if (require.main === module) {
   });
 }
 
-module.exports = { loadEnvFile, shouldProcess, createMessageHandler, HELP_TEXT, main };
+module.exports = {
+  loadEnvFile,
+  shouldProcess,
+  createMessageHandler,
+  createSerialMessageQueue,
+  HELP_TEXT,
+  main,
+};

@@ -3,7 +3,13 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { loadEnvFile, shouldProcess, createMessageHandler, HELP_TEXT } = require('../src/index');
+const {
+  loadEnvFile,
+  shouldProcess,
+  createMessageHandler,
+  createSerialMessageQueue,
+  HELP_TEXT,
+} = require('../src/index');
 const { parseMessage } = require('../src/parsers');
 
 function msg(overrides = {}) {
@@ -62,6 +68,70 @@ describe('shouldProcess', () => {
   test('rejects messages the bot itself sent (self-chat protection)', () => {
     ids.add('msg_1');
     expect(shouldProcess(msg(), 'me@c.us', ids)).toBe(false);
+  });
+});
+
+describe('createSerialMessageQueue (self-chat race guard)', () => {
+  test('processes immediately when no send is in flight', async () => {
+    const onMessage = jest.fn(async () => {});
+    const inFlight = new Set();
+    const queue = createSerialMessageQueue(onMessage, inFlight);
+
+    await queue.enqueue({ body: 'uno' });
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(queue.size()).toBe(0);
+  });
+
+  test('defers events while a send is settling, then processes them', async () => {
+    const order = [];
+    let settle;
+    const pendingSend = new Promise((resolve) => { settle = resolve; });
+    const inFlight = new Set([pendingSend]);
+    const onMessage = jest.fn(async (m) => { order.push(`handled:${m.body}`); });
+
+    const queue = createSerialMessageQueue(onMessage, inFlight);
+    const drainPromise = queue.enqueue({ body: 'bot-self-msg' });
+
+    // Let the microtask queue flush: the event must still be deferred.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(onMessage).not.toHaveBeenCalled();
+
+    inFlight.delete(pendingSend); // id recorded by send() before settle
+    settle();
+    await drainPromise;
+
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['handled:bot-self-msg']);
+  });
+
+  test('re-entrant enqueue during drain is neither dropped nor duplicated', async () => {
+    const seen = [];
+    const inFlight = new Set();
+    const queue = createSerialMessageQueue(async (m) => {
+      seen.push(m.body);
+      if (m.body === 'first') queue.enqueue({ body: 'second' });
+    }, inFlight);
+
+    await queue.enqueue({ body: 'first' });
+    expect(seen).toEqual(['first', 'second']);
+    expect(queue.size()).toBe(0);
+  });
+
+  test('a throwing handler does not stall subsequent events', async () => {
+    const log = { error: jest.fn() };
+    const inFlight = new Set();
+    const onMessage = jest.fn()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce(undefined);
+    const queue = createSerialMessageQueue(onMessage, inFlight, log);
+
+    await queue.enqueue({ body: 'bad' });
+    await queue.enqueue({ body: 'good' });
+
+    expect(onMessage).toHaveBeenCalledTimes(2);
+    expect(log.error).toHaveBeenCalled();
+    expect(queue.size()).toBe(0);
   });
 });
 
