@@ -175,6 +175,24 @@ describe('hydration module (RF2.1-RF2.4)', () => {
     ).toBe(2 * HOUR);
   });
 
+  test('stray confirmation in IDLE is ignored (no invented 2h cycle)', () => {
+    hydration.init({ send });
+    expect(hydration.handleConfirm()).toBe(false);
+    expect(hydration.getStatus()).toMatchObject({ status: 'IDLE', nextScheduledAt: null });
+    expect(storage.loadState().hydration.status).toBe('IDLE');
+  });
+
+  test('stray confirmation while already CONFIRMED does not push the cycle', () => {
+    hydration.init({ send });
+    fireDailyCron();
+    hydration.handleConfirm();
+    const firstCycle = hydration.getStatus().nextScheduledAt;
+
+    jest.setSystemTime(Date.now() + 30 * MIN);
+    expect(hydration.handleConfirm()).toBe(false);
+    expect(hydration.getStatus().nextScheduledAt).toBe(firstCycle);
+  });
+
   test('shutdown stops cron and timers', () => {
     hydration.init({ send });
     const { stop } = cron.schedule.mock.results[0].value;

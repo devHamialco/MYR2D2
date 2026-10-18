@@ -131,10 +131,18 @@ function init(options = {}) {
  * RF2.3/RF2.4: on user confirmation stop the insistence loop and schedule the
  * next "Ya bebiste agua?" for exactly two hours later.
  *
+ * Only honored while an initial question is actually pending
+ * (AWAITING_CONFIRMATION): stray affirmatives in idle conversation ("ya",
+ * "sí" match RF2.3 words) must not invent a 2-hour cycle out of nowhere.
+ *
  * @returns {boolean} true when a confirmation was accepted
  */
 function handleConfirm() {
   if (!runtime) return false;
+  if (runtime.status !== 'AWAITING_CONFIRMATION') {
+    logger.debug(`hydration: confirm ignored (status ${runtime.status})`);
+    return false;
+  }
   clearAllTimers();
   runtime.status = 'CONFIRMED';
   runtime.nextScheduledAt = new Date(Date.now() + runtime.config.cycleMs).toISOString();
