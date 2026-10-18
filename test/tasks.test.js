@@ -63,6 +63,13 @@ describe('tasks module — add/remove (RF5.1, RF5.2, RF5.4)', () => {
     expect(ids).toEqual([1, 2]);
   });
 
+  test('numeric matchers never fall through to substring text match', () => {
+    tasks.addTask('pagar 5 impuestos');
+    expect(tasks.removeTask('5')).toBeNull(); // no id 5 exists (its id is 1)
+    expect(tasks.listTasks()).toHaveLength(1);
+    expect(tasks.listTasks()[0].text).toBe('pagar 5 impuestos');
+  });
+
   test('removeTask by accent-insensitive name and by id (RF5.4)', () => {
     tasks.addTask('cepillar al gato');
     tasks.addTask('sacar la basura');
@@ -112,6 +119,10 @@ describe('tasks module — random dispatcher (updated RF5.3: 08:00-22:00, pomodo
     send.mockClear();
 
     jest.setSystemTime(at(21, 30));
+    expect(tasks.checkAndSend()).toBe(true);
+    send.mockClear();
+
+    jest.setSystemTime(at(22, 0)); // inclusive boundary still inside window
     expect(tasks.checkAndSend()).toBe(true);
     send.mockClear();
 
@@ -171,7 +182,7 @@ describe('tasks module — random dispatcher (updated RF5.3: 08:00-22:00, pomodo
   });
 
   test('cron scheduled with the configured expression and stopped on shutdown', () => {
-    expect(cron.schedule).toHaveBeenCalledWith('*/30 8-21 * * *', expect.any(Function));
+    expect(cron.schedule).toHaveBeenCalledWith('*/30 8-22 * * *', expect.any(Function));
     const { stop } = cron.schedule.mock.results[cron.schedule.mock.results.length - 1].value;
     tasks.shutdown();
     expect(stop).toHaveBeenCalled();

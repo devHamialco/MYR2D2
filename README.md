@@ -33,7 +33,7 @@ Además, de forma automática:
 | `PUPPETEER_SKIP_DOWNLOAD` | `true` en el ejemplo | Ponla en `false` si necesitas que se descargue Chromium para el login real |
 | `HYDRATION_CRON` | `30 6 * * *` | Horario de la pregunta diaria de agua |
 | `POMODORO_WORK_MS` / `POMODORO_SHORT_BREAK_MS` / `POMODORO_LONG_BREAK_MS` | 25/5/15 min | Duraciones del Pomodoro (sobreescribibles para pruebas aceleradas) |
-| `TASKS_CRON` | `*/30 8-21 * * *` | Frecuencia del chequeo aleatorio de tareas |
+| `TASKS_CRON` | `*/30 8-22 * * *` | Frecuencia del chequeo aleatorio de tareas (el tick 22:30 lo corta la ventana) |
 | `TASKS_TIME_FROM` / `TASKS_TIME_TO` | `08:00` / `22:00` | Ventana activa de sugerencias (regla del usuario) |
 | `TASKS_SEND_PROBABILITY` | `0.3` | Probabilidad de enviar la lista en cada chequeo |
 | `DATA_DIR` | `./data` | Carpeta de persistencia (`state.json`, `tasks.json`) |
@@ -43,6 +43,8 @@ Además, de forma automática:
 ```bash
 npm test
 ```
+
+> **Zona horaria:** el cron de las 06:30, la ventana 08:00–22:00 de tareas y los `TASKS_*` usan la hora local del host donde corre el bot (variable `TZ` del sistema si el servidor es remoto).
 
 Suite completa (94 tests) con Jest y timers simulados: parsers, hidratación (bucle, confirmación, recuperación al arranque), Pomodoro (ciclo completo de 130 min), recordatorios, tareas (ventana 8–22 y supresión durante trabajo) y enrutamiento del orquestador. **No requiere conexión a WhatsApp.**
 

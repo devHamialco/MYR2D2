@@ -6,7 +6,8 @@ const storage = require('../utils/storage');
 const { stripAccents } = require('../parsers');
 
 const DEFAULT_CONFIG = {
-  cronSchedule: process.env.TASKS_CRON || '*/30 8-21 * * *',
+  // 8-22 so the 22:00 tick exists; inWindow() blocks 22:30+ (inclusive end).
+  cronSchedule: process.env.TASKS_CRON || '*/30 8-22 * * *',
   timeFrom: process.env.TASKS_TIME_FROM || '08:00',
   timeTo: process.env.TASKS_TIME_TO || '22:00',
   probability: Number(process.env.TASKS_SEND_PROBABILITY || 0.3),
@@ -104,8 +105,13 @@ function removeTask(matcher) {
   if (/^\d+$/.test(needle)) {
     const id = Number(needle);
     index = data.tasks.findIndex((t) => Number(t.id) === id);
-  }
-  if (index === -1) {
+    if (index === -1) {
+      // Numeric matchers mean "by id": never fall through to substring search
+      // or "elimina 5" could delete a task whose TEXT contains "5".
+      logger.info(`tasks: no task with id ${id}`);
+      return null;
+    }
+  } else {
     const norm = stripAccents(needle).toLowerCase();
     index = data.tasks.findIndex(
       (t) => stripAccents(String(t.text)).toLowerCase().includes(norm)
