@@ -111,7 +111,7 @@ El sistema opera de forma autónoma dentro de un chat privado de WhatsApp (chat 
 #### Módulo 5: Gestión de Lista de Tareas y Disparador Aleatorio
 * **RF5.1 - Adición de Tareas:** El bot debe reconocer mensajes con la estructura: `"añade [nombre de tarea] a las tareas"`.
 * **RF5.2 - Almacenamiento Persistente:** La tarea debe registrarse de inmediato en un archivo JSON local (`data/tasks.json`).
-* **RF5.3 - Envío Aleatorio de Tareas:** El sistema debe contar con un programador que, de forma aleatoria durante la jornada activa (ej. entre 09:00 AM y 08:00 PM), envíe un mensaje con la lista de tareas pendientes acumuladas sugiriendo avanzar en alguna de ellas.
+* **RF5.3 - Envío Aleatorio de Tareas:** El sistema debe contar con un programador que, de forma aleatoria durante la jornada activa (entre **08:00 AM y 10:00 PM**), envíe un mensaje con la lista de tareas pendientes acumuladas sugiriendo avanzar en alguna de ellas. **Los envíos quedan suspendidos durante los intervalos de trabajo de 25 minutos del Pomodoro** (estado `WORKING`) para evitar distracciones durante la concentración; durante los descansos el envío está permitido.
 * **RF5.4 - Limpieza/Completado de Tareas:** El sistema debe responder al comando `"elimina [tarea]"` o `"tarea completada [número/nombre]"` para remover elementos de la lista.
 
 ---

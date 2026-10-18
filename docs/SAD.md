@@ -91,7 +91,7 @@ El sistema adopta una **Arquitectura Dirigida por Eventos (Event-Driven Architec
 * **Mecanismo:** Registra temporizadores individuales dinámicos en memoria respaldados en `state.json`.
 
 #### D. Task Randomizer (`src/modules/tasks.js`)
-* **Mecanismo:** Mantiene un arreglo de tareas. Cuenta con un programador Cron que ejecuta una consulta de probabilidad aleatoria durante un rango de tiempo definido (09:00 - 20:00) para emitir notificaciones con los pendientes.
+* **Mecanismo:** Mantiene un arreglo de tareas. Cuenta con un programador Cron que ejecuta una consulta de probabilidad aleatoria durante un rango de tiempo definido (08:00 - 22:00) para emitir notificaciones con los pendientes. Los envíos se suprimen mientras el Pomodoro está en estado `WORKING` mediante un gate (`canSend`) inyectado por el orquestador, sin que los módulos se importen entre sí.
 
 ---
 
