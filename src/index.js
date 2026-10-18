@@ -233,7 +233,15 @@ function createSerialMessageQueue(onMessage, inFlight, log) {
 async function main() {
   storage.init(process.env.DATA_DIR);
 
-  const client = new Client({ authStrategy: new LocalAuth() });
+  const client = new Client({
+    authStrategy: new LocalAuth(),
+    // Default 'local' serves a persisted index.html through request
+    // interception; WhatsApp Web then performs a real navigation to refresh
+    // it, which races inject()'s evaluate loop and kills it with
+    // "Execution context was destroyed". 'none' always loads the live site —
+    // the same path as a fresh first run.
+    webVersionCache: { type: 'none' },
+  });
   let targetChatId = null;
   const botMessageIds = new Set();
   const inFlightSends = new Set();
@@ -343,12 +351,48 @@ async function main() {
   process.once('SIGINT', () => shutdown('SIGINT'));
   process.once('SIGTERM', () => shutdown('SIGTERM'));
 
-  await client.initialize();
+  await initializeWithRetry(client);
+}
+
+/**
+ * Wrap client.initialize() with bounded retries: a transient page navigation
+ * during injection ("Execution context was destroyed …") must not kill the
+ * whole bot. Each failed attempt closes the browser before retrying.
+ *
+ * @param {object} client whatsapp-web.js Client
+ * @param {{attempts?: number, delayMs?: number, log?: object}} [opts]
+ * @returns {Promise<void>}
+ */
+async function initializeWithRetry(client, opts = {}) {
+  const { attempts = 3, delayMs = 5000, log = logger } = opts;
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await client.initialize();
+      return;
+    } catch (err) {
+      lastError = err;
+      log.warn(`initialize: intento ${attempt}/${attempts} falló — ${err && err.message ? err.message : err}`);
+      try {
+        await client.destroy();
+      } catch (destroyErr) {
+        log.warn(`initialize: limpieza falló — ${destroyErr.message}`);
+      }
+      if (attempt < attempts) {
+        await new Promise((resolve) => { setTimeout(resolve, delayMs); });
+      }
+    }
+  }
+  throw lastError;
 }
 
 if (require.main === module) {
   main().catch((err) => {
     logger.error('fatal startup error', err);
+    logger.error(
+      'Si el error persiste: cierra el bot, borra las carpetas .wwebjs_auth y '
+      + '.wwebjs_cache (habrá que escanear el QR de nuevo) y reintenta.'
+    );
     process.exit(1);
   });
 }
@@ -359,6 +403,7 @@ module.exports = {
   jidFromWid,
   createMessageHandler,
   createSerialMessageQueue,
+  initializeWithRetry,
   HELP_TEXT,
   main,
 };

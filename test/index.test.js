@@ -9,6 +9,7 @@ const {
   jidFromWid,
   createMessageHandler,
   createSerialMessageQueue,
+  initializeWithRetry,
   HELP_TEXT,
 } = require('../src/index');
 const { parseMessage } = require('../src/parsers');
@@ -69,6 +70,50 @@ describe('shouldProcess', () => {
   test('rejects messages the bot itself sent (self-chat protection)', () => {
     ids.add('msg_1');
     expect(shouldProcess(msg(), 'me@c.us', ids)).toBe(false);
+  });
+});
+
+describe('initializeWithRetry', () => {
+  const log = { warn: jest.fn() };
+
+  test('retries a transient failure, destroys the browser in between, then succeeds', async () => {
+    const client = {
+      initialize: jest.fn()
+        .mockRejectedValueOnce(new Error('Execution context was destroyed'))
+        .mockResolvedValueOnce(undefined),
+      destroy: jest.fn(),
+    };
+
+    await initializeWithRetry(client, { attempts: 3, delayMs: 1, log });
+    expect(client.initialize).toHaveBeenCalledTimes(2);
+    expect(client.destroy).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining('intento 1/3 falló')
+    );
+  });
+
+  test('throws the last error after exhausting attempts', async () => {
+    const client = {
+      initialize: jest.fn().mockRejectedValue(new Error('boom')),
+      destroy: jest.fn(),
+    };
+
+    await expect(
+      initializeWithRetry(client, { attempts: 2, delayMs: 1, log })
+    ).rejects.toThrow('boom');
+    expect(client.initialize).toHaveBeenCalledTimes(2);
+    expect(client.destroy).toHaveBeenCalledTimes(2);
+  });
+
+  test('a destroy() failure does not mask the initialize error', async () => {
+    const client = {
+      initialize: jest.fn().mockRejectedValue(new Error('boom')),
+      destroy: jest.fn().mockRejectedValue(new Error('already dead')),
+    };
+
+    await expect(
+      initializeWithRetry(client, { attempts: 1, delayMs: 1, log })
+    ).rejects.toThrow('boom');
   });
 });
 
