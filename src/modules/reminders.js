@@ -61,7 +61,10 @@ function schedule(text, delayMs) {
  * down fire immediately; future ones reschedule with their remaining time.
  */
 function restoreSaved() {
-  const saved = Array.isArray(storage.loadState().reminders) ? storage.loadState().reminders : [];
+  // Single read: two independent loadState() calls could observe different
+  // snapshots if a persist() lands between them.
+  const state = storage.loadState();
+  const saved = Array.isArray(state.reminders) ? state.reminders : [];
   for (const entry of saved) {
     if (!entry || !entry.text || !entry.triggerAt) continue;
     const due = new Date(entry.triggerAt).getTime();

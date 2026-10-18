@@ -123,6 +123,12 @@ function advanceState() {
 /**
  * Boot recovery per SAD 5.2: an expired transition runs immediately,
  * a future one is rescheduled with its remaining time.
+ *
+ * Decision (matches SAD's "ejecuta la alerta inmediatamente y restablece el
+ * flujo"): only ONE overdue transition fires at boot — the new state then
+ * starts a fresh full-duration timer. A long downtime therefore stretches
+ * the session instead of replaying every missed interval, which keeps the
+ * user experience predictable after crashes.
  */
 function restoreTimers() {
   if (runtime.state !== STATES.WORKING
