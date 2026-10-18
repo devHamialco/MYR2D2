@@ -160,18 +160,27 @@ async function main() {
   const botMessageIds = new Set();
 
   // Modules share this send function; recorded ids keep the bot from
-  // reacting to its own messages in the self-chat.
+  // reacting to its own messages in the self-chat. Failures are logged and
+  // swallowed so a transient sendMessage rejection never crashes timers (RNF1).
   const send = async (text) => {
-    if (!targetChatId) throw new Error('target chat not resolved yet (bot not ready)');
-    const sent = await client.sendMessage(targetChatId, text);
-    const id = sent && sent.id && sent.id._serialized;
-    if (id) {
-      botMessageIds.add(id);
-      if (botMessageIds.size > 500) {
-        botMessageIds.delete(botMessageIds.values().next().value);
-      }
+    if (!targetChatId) {
+      logger.warn('send skipped: target chat not resolved yet');
+      return null;
     }
-    return sent;
+    try {
+      const sent = await client.sendMessage(targetChatId, text);
+      const id = sent && sent.id && sent.id._serialized;
+      if (id) {
+        botMessageIds.add(id);
+        if (botMessageIds.size > 500) {
+          botMessageIds.delete(botMessageIds.values().next().value);
+        }
+      }
+      return sent;
+    } catch (err) {
+      logger.error(`sendMessage failed: ${err.message}`);
+      return null;
+    }
   };
 
   client.on('qr', (qr) => {
