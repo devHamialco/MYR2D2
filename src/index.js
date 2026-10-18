@@ -92,7 +92,14 @@ function createMessageHandler(deps) {
   const { send, getTargetChatId, botMessageIds, parseMessage: parse } = deps;
 
   return async function onMessage(msg) {
-    if (!shouldProcess(msg, getTargetChatId(), botMessageIds)) return;
+    if (!shouldProcess(msg, getTargetChatId(), botMessageIds)) {
+      // Diagnostic (visible with DEBUG=1): why did the filter drop it?
+      deps.logger.debug(
+        `msg descartado: from=${msg && msg.from} fromMe=${msg && msg.fromMe} `
+        + `target=${getTargetChatId()} knownBotId=${!!(msg && msg.id && botMessageIds.has(msg.id._serialized))}`
+      );
+      return;
+    }
 
     try {
       const context = {
@@ -150,6 +157,24 @@ function createMessageHandler(deps) {
       deps.logger.error('message handling failed', err);
     }
   };
+}
+
+/**
+ * Normalize a Wid (client.info.wid) into a plain chat JID.
+ * Handles {user, server} objects and raw `_serialized` values, strips device
+ * suffixes ("521…:12@c.us" → "521…@c.us") and lets LID ids pass through
+ * unchanged.
+ *
+ * @param {{user?: string, server?: string, _serialized?: string}|null} wid
+ * @returns {string|null}
+ */
+function jidFromWid(wid) {
+  if (!wid) return null;
+  if (wid.user && wid.server) return `${wid.user}@${wid.server}`;
+  if (typeof wid._serialized === 'string' && wid._serialized) {
+    return wid._serialized.replace(/:\d+@/, '@');
+  }
+  return null;
 }
 
 /**
@@ -250,11 +275,22 @@ async function main() {
   client.on('ready', async () => {
     try {
       const configured = process.env.TARGET_CHAT_ID;
-      if (!configured || configured === 'me') {
-        const me = await client.getMe();
-        targetChatId = `${me.id.user}@${me.id.server}`;
-      } else {
+      if (configured && configured !== 'me') {
         targetChatId = configured;
+      } else {
+        // whatsapp-web.js has no getMe(); own identity lives in ClientInfo
+        // (set just before the ready event). wid may be a PN id (…@c.us) or a
+        // LID id (…@lid) depending on the account — pass it through as-is so
+        // it matches whatever msg.from reports for this same account.
+        const wid = client.info && client.info.wid;
+        targetChatId = jidFromWid(wid);
+        if (!targetChatId) {
+          logger.error(
+            'No se pudo resolver tu propio chat (client.info.wid ausente). '
+            + 'Define TARGET_CHAT_ID en .env con tu JID (ej: 5215512345678@c.us) y reinicia.'
+          );
+          return;
+        }
       }
       logger.info(`R2D2 listo — chat objetivo: ${targetChatId}`);
 
@@ -320,6 +356,7 @@ if (require.main === module) {
 module.exports = {
   loadEnvFile,
   shouldProcess,
+  jidFromWid,
   createMessageHandler,
   createSerialMessageQueue,
   HELP_TEXT,

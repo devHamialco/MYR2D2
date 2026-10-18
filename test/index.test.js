@@ -6,6 +6,7 @@ const path = require('path');
 const {
   loadEnvFile,
   shouldProcess,
+  jidFromWid,
   createMessageHandler,
   createSerialMessageQueue,
   HELP_TEXT,
@@ -68,6 +69,27 @@ describe('shouldProcess', () => {
   test('rejects messages the bot itself sent (self-chat protection)', () => {
     ids.add('msg_1');
     expect(shouldProcess(msg(), 'me@c.us', ids)).toBe(false);
+  });
+});
+
+describe('jidFromWid', () => {
+  test('builds a plain JID from {user, server}', () => {
+    expect(jidFromWid({ user: '5215512345678', server: 'c.us' })).toBe('5215512345678@c.us');
+  });
+
+  test('accepts LID ids untouched', () => {
+    expect(jidFromWid({ user: '123456789012345', server: 'lid' })).toBe('123456789012345@lid');
+  });
+
+  test('falls back to _serialized and strips device suffixes', () => {
+    expect(jidFromWid({ _serialized: '5215512345678:12@c.us' })).toBe('5215512345678@c.us');
+    expect(jidFromWid({ _serialized: '5215512345678@c.us' })).toBe('5215512345678@c.us');
+  });
+
+  test('returns null for missing/empty wid', () => {
+    expect(jidFromWid(null)).toBeNull();
+    expect(jidFromWid(undefined)).toBeNull();
+    expect(jidFromWid({})).toBeNull();
   });
 });
 
@@ -233,6 +255,18 @@ describe('createMessageHandler routing', () => {
     await handler(hydratedMsg('esto no es un comando', 'a10'));
     expect(send).not.toHaveBeenCalled();
     expect(deps.hydration.handleConfirm).not.toHaveBeenCalled();
+  });
+
+  test('dropped messages are traced via logger.debug (DEBUG diagnostics)', async () => {
+    const handler = buildHandler();
+    await handler(msg({ from: 'otro@c.us', body: 'hola', id: { _serialized: 'x1' } }));
+    expect(send).not.toHaveBeenCalled();
+    expect(deps.logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('msg descartado: from=otro@c.us')
+    );
+    expect(deps.logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('target=me@c.us')
+    );
   });
 
   test('bot does not react to its own recorded messages', async () => {
